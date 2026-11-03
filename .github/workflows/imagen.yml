@@ -1,0 +1,35 @@
+# Construye la imagen Docker y la publica en GitHub Container Registry (ghcr.io)
+# cada vez que se hace push a main. No necesita Docker en el PC ni contraseñas:
+# usa el token automático de GitHub Actions.
+#
+# Imagen resultante: ghcr.io/<usuario-de-github-en-minusculas>/info-api:latest
+name: Publicar imagen
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  imagen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y publicar
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGEN="ghcr.io/${OWNER}/info-api"
+          docker build -t "${IMAGEN}:latest" -t "${IMAGEN}:${GITHUB_SHA::7}" .
+          docker push --all-tags "${IMAGEN}"
+          echo "Imagen publicada: ${IMAGEN}:latest" >> "$GITHUB_STEP_SUMMARY"
