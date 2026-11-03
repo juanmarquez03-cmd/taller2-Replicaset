@@ -1,0 +1,6 @@
+# Namespace propio: separa la app del taller de los componentes del clúster
+# (kube-system, kube-flannel) y permite borrar todo con un solo comando.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: taller

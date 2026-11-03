@@ -1,0 +1,109 @@
+# ReplicaSet: mantiene siempre 5 pods iguales funcionando. Si un pod se borra
+# o su worker se apaga, crea otro para volver a tener 5.
+#
+# No se usa Deployment ni Service:
+#  - Sin Deployment no hay actualizaciones graduales (rollout). Para cambiar la
+#    imagen hay que borrar los pods y el ReplicaSet crea los nuevos.
+#  - Sin Service no hay una dirección única ni balanceo: cada pod se consulta
+#    directamente por su IP de la red de pods (ver scripts/probar.sh).
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: info-api
+  namespace: taller
+  labels:
+    app: info-api
+spec:
+  # 5 réplicas = una por worker (hay 5 workers). Si un worker se apaga, su pod
+  # se recrea en otro y quedan 5 réplicas funcionando en 4 workers.
+  replicas: 5
+  # El ReplicaSet cuenta como suyos todos los pods con esta etiqueta.
+  selector:
+    matchLabels:
+      app: info-api
+  template:
+    metadata:
+      labels:
+        app: info-api
+    spec:
+      # ---------------------------------------------------------------------
+      # Reparto: como máximo 1 pod de diferencia entre un worker y otro.
+      # nodeTaintsPolicy: Honor hace que el master (taint control-plane) y los
+      # workers caídos (taint unreachable) no cuenten en el cálculo; sin eso,
+      # el scheduler dejaría pods en Pending al apagar un worker.
+      # ---------------------------------------------------------------------
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          nodeTaintsPolicy: Honor
+          labelSelector:
+            matchLabels:
+              app: info-api
+
+      # ---------------------------------------------------------------------
+      # Por defecto Kubernetes espera 300 s antes de sacar los pods de un nodo
+      # caído. Con 30 s la demostración de "apagar un worker" dura ~1,5 min.
+      # ---------------------------------------------------------------------
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 30
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 30
+
+      terminationGracePeriodSeconds: 20
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+
+      containers:
+        - name: info-api
+          image: ghcr.io/juanmarquez03-cmd/info-api:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+
+          env:
+            # Zona horaria del contenedor (para horaContenedor).
+            - name: TZ
+              value: America/Bogota
+
+          # Los workers tienen ~1,6 GB de RAM: estos valores dejan espacio para
+          # 3 pods por nodo cuando otro worker está apagado.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+              ephemeral-storage: 100Mi
+            limits:
+              cpu: "1"
+              memory: 384Mi
+              ephemeral-storage: 512Mi
+
+          # startupProbe: da hasta 3 min para arrancar (las VMs son lentas) antes
+          # de que empiecen a contar las otras dos sondas.
+          startupProbe:
+            httpGet:
+              path: /api/info
+              port: http
+            periodSeconds: 5
+            failureThreshold: 36
+          # livenessProbe: si la app se cuelga, el kubelet reinicia el contenedor.
+          livenessProbe:
+            httpGet:
+              path: /api/info
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          # readinessProbe: marca el pod como listo (READY 1/1) solo cuando responde.
+          readinessProbe:
+            httpGet:
+              path: /api/info
+              port: http
+            periodSeconds: 5
+            failureThreshold: 2

@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: info-api
+  lifecycle:
+    # Al recibir SIGTERM (kubectl delete pod) termina las peticiones en curso
+    # hasta 10 s antes de apagarse.
+    timeout-per-shutdown-phase: 10s
+
+server:
+  port: 8080
+  shutdown: graceful
+
+taller:
+  integrantes:
+    - "Nicolas David Castro Cely"
+    - "Juan David Márquez Pinto"
+    - "Andres Mauricio Sanchez Sanchez"
